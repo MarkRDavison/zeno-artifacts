@@ -108,20 +108,66 @@ public class Worker : BackgroundService
                 }
             }
 
-            //TODO: skip/wait till cooldown over
+            character = await WaitForCooldown(character, token);
 
-            if (character.Hp < character.MaxHp)
-            {
-                if (await _artifactsApiClient.My[character.Name].Action.Rest.PostAsync(cancellationToken: token) is { Data: not null } restData &&
-                    restData.Data.Character is not null)
-                {
-                    character = restData.Data.Character;
-                }
-            }
+            character = await HealCharacter(character, token);
 
-            //TODO: skip/wait till cooldown over
+            character = await WaitForCooldown(character, token);
+
+            character = await Fight(character, token);
+
+            character = await WaitForCooldown(character, token);
+
+            character = await HealCharacter(character, token);
+
+            character = await WaitForCooldown(character, token);
         }
 
         _hostApplicationLifetime.StopApplication();
+    }
+
+    private async Task<CharacterSchema> Fight(CharacterSchema character, CancellationToken token)
+    {
+        var fightResponse = await _artifactsApiClient.My[character.Name].Action.Fight.PostAsync(
+                        _ => { },
+                        token);
+
+        if (fightResponse?.Data is { } fightData)
+        {
+            if (fightData.Character is not null)
+            {
+                character = fightData.Character;
+            }
+        }
+
+        return character;
+    }
+
+    private async Task<CharacterSchema> HealCharacter(CharacterSchema character, CancellationToken token)
+    {
+        if (character.Hp < character.MaxHp)
+        {
+            if (await _artifactsApiClient.My[character.Name].Action.Rest.PostAsync(cancellationToken: token) is { Data: not null } restData &&
+                restData.Data.Character is not null)
+            {
+                character = restData.Data.Character;
+            }
+        }
+
+        return character;
+    }
+
+    private async Task<CharacterSchema> WaitForCooldown(CharacterSchema character, CancellationToken token)
+    {
+        if (character.CooldownExpiration <= DateTimeOffset.UtcNow)
+        {
+            return character;
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(1 + (character.Cooldown ?? 0)), token);
+
+        var response = await _artifactsApiClient.Characters[character.Name].GetAsync(cancellationToken: token);
+
+        return response?.Data ?? throw new InvalidDataException("Could not retrieve character");
     }
 }

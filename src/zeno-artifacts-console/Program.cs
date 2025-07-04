@@ -1,4 +1,5 @@
-﻿using zeno.artifacts.shared;
+﻿using System.ComponentModel.DataAnnotations;
+using zeno.artifacts.shared;
 using zeno.artifacts.shared.Configuration;
 using zeno.artifacts.shared.Ignition;
 using zeno.artifacts.shared.Services;
@@ -29,10 +30,8 @@ internal class Program
         {
             services
                 .AddOptions<ArtifactsSettings>()
-                .Bind(hostContext.Configuration.GetSection(ArtifactsSettings.Path));
-
-            // TODO: Validate
-            // Validator.ValidateObject(appSettings, new ValidationContext(appSettings), validateAllProperties: true);
+                .Bind(hostContext.Configuration.GetSection(ArtifactsSettings.Path))
+                .Validate(_ => Validator.TryValidateObject(_, new ValidationContext(_), [], validateAllProperties: true));
 
             services
                 .AddShared()
@@ -51,17 +50,20 @@ public class Worker : BackgroundService
     private readonly ICacheableService<MapSchema> _mapService;
     private readonly ICacheableService<MonsterSchema> _monsterService;
     private readonly ArtifactsApiClient _artifactsApiClient;
+    private readonly ILogger<Worker> _logger;
 
     public Worker(
         IHostApplicationLifetime hostApplicationLifetime,
         ICacheableService<MapSchema> mapService,
         ICacheableService<MonsterSchema> monsterService,
-        ArtifactsApiClient artifactsApiClient)
+        ArtifactsApiClient artifactsApiClient,
+        ILogger<Worker> logger)
     {
         _hostApplicationLifetime = hostApplicationLifetime;
         _mapService = mapService;
         _monsterService = monsterService;
         _artifactsApiClient = artifactsApiClient;
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken token)
@@ -90,40 +92,47 @@ public class Worker : BackgroundService
 
         {
             var character = charactersByName["Zenot"];
-
-            if (mapWithMonster is { } map && (character.X != map.X || character.Y != map.Y))
+            const int total = 10;
+            foreach (var i in Enumerable.Range(0, total))
             {
-                var response = await _artifactsApiClient.My[character.Name].Action.Move.PostAsync(
-                    new DestinationSchema
-                    {
-                        X = mapWithMonster.X,
-                        Y = mapWithMonster.Y
-                    },
-                    _ => { },
-                    token);
-
-                if (response?.Data?.Character is not null)
+                _logger.LogInformation("Starting round {Round}/{Total}", i + 1, total);
+                if (mapWithMonster is { X: not null, Y: not null } map && (character.X != map.X || character.Y != map.Y))
                 {
-                    character = response.Data.Character;
+                    character = await Move(mapWithMonster.X.Value, mapWithMonster.Y.Value, character, token);
                 }
+
+                character = await WaitForCooldown(character, token);
+
+                character = await HealCharacter(character, token);
+
+                character = await WaitForCooldown(character, token);
+
+                character = await Fight(character, token);
+
+                character = await WaitForCooldown(character, token);
+
+                character = await HealCharacter(character, token);
+
+                character = await WaitForCooldown(character, token);
             }
-
-            character = await WaitForCooldown(character, token);
-
-            character = await HealCharacter(character, token);
-
-            character = await WaitForCooldown(character, token);
-
-            character = await Fight(character, token);
-
-            character = await WaitForCooldown(character, token);
-
-            character = await HealCharacter(character, token);
-
-            character = await WaitForCooldown(character, token);
         }
 
         _hostApplicationLifetime.StopApplication();
+    }
+
+    private async Task<CharacterSchema> Move(int x, int y, CharacterSchema character, CancellationToken token)
+    {
+        var response = await _artifactsApiClient.My[character.Name].Action.Move.PostAsync(
+            new DestinationSchema { X = x, Y = y },
+            _ => { },
+            token);
+
+        if (response?.Data?.Character is not null)
+        {
+            character = response.Data.Character;
+        }
+
+        return character;
     }
 
     private async Task<CharacterSchema> Fight(CharacterSchema character, CancellationToken token)

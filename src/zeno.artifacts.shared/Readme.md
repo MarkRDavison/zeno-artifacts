@@ -1,0 +1,1 @@
+kiota generate --language csharp --output ./Client --class-name ArtifactsApiClient --cc --namespace-name "zeno.artifacts.shared.client" --co --openapi https://api.artifactsmmo.com/openapi.json

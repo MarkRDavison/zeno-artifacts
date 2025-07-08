@@ -6,6 +6,7 @@ public static class DependencyInjectionExtensions
     {
         services.AddSingleton<ICacheableService<MapSchema>, MapService>();
         services.AddSingleton<ICacheableService<MonsterSchema>, MonsterService>();
+        services.AddSingleton<ICacheableService<Npc>, NpcService>();
         services.AddSingleton<ArtifactsApiClient>(_ =>
         {
             var options = _.GetRequiredService<IOptions<ArtifactsSettings>>();
